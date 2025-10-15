@@ -2,7 +2,7 @@ from PIL import Image
 import matplotlib.pyplot as plt
 from torchvision import transforms
 from segearth_segmentor import SegEarthSegmentation
-
+from segearth_segmentor import get_cls_idx
 img = Image.open('demo/oem_koeln_50.tif')
 
 name_list = ['background', 'bareland,barren', 'grass', 'pavement', 'road',
@@ -50,3 +50,5 @@ ax[1].axis('off')
 plt.tight_layout()
 # plt.show()
 plt.savefig('seg_pred.png', bbox_inches='tight')
+
+print(get_cls_idx('./configs/my_name.txt'))  
