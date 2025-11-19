@@ -11,7 +11,7 @@ from mmengine.utils import mkdir_or_exist
 def parse_args():
     parser = argparse.ArgumentParser(
         description='Convert OpenEarthMap dataset to mmsegmentation format')
-    parser.add_argument('dataset_path', help='OpenEarthMap folder path')
+    parser.add_argument('dataset_path',default='/home/fengyi/data/tmp', help='OpenEarthMap folder path')
     parser.add_argument('-o', '--out_dir', help='output path')
     args = parser.parse_args()
     return args
