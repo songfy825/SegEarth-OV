@@ -9,7 +9,7 @@ model = dict(
 
 # dataset settings
 dataset_type = 'UDD5Dataset'
-data_root = ''
+data_root = '/home/fengyi/data/SegEarth'
 
 test_pipeline = [
     dict(type='LoadImageFromFile'),
@@ -19,7 +19,22 @@ test_pipeline = [
     dict(type='LoadAnnotations'),
     dict(type='PackSegInputs')
 ]
-
+# test_pipeline = [
+#     dict(type='LoadImageFromFile'),
+#     dict(type='Resize', scale=(512, 512), keep_ratio=True),
+#     # add loading annotation after ``Resize`` because ground truth
+#     # does not need to do resize data transform
+#     dict(type='LoadAnnotations'),
+#     dict(type='PackSegInputs')
+# ]
+#Clipseg
+test_pipeline = [
+    dict(type='LoadImageFromFile'),
+    dict(type='Resize', scale=(704, 704), keep_ratio=True),
+    # 添加数据类型转换和归一化
+    dict(type='LoadAnnotations'),
+    dict(type='PackSegInputs')
+]
 test_dataloader = dict(
     batch_size=1,
     num_workers=4,
@@ -28,6 +43,6 @@ test_dataloader = dict(
         type=dataset_type,
         data_root=data_root,
         data_prefix=dict(
-            img_path='data/UDD/UDD/UDD5/val/src',
-            seg_map_path='data/UDD/UDD/UDD5/val/gt'),
+            img_path='UDD5/val/src',
+            seg_map_path='UDD5/val/gt'),
         pipeline=test_pipeline))

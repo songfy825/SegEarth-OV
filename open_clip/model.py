@@ -267,8 +267,9 @@ class CLIP(nn.Module):
                      model_type,
                      ignore_residual: bool = False,
                      output_cls_token: bool = False,
-                     normalize: bool = False):
-        features = self.visual(image, model_type, ignore_residual, output_cls_token)
+                     normalize: bool = False,
+                     last_n_layers: int = 1):
+        features = self.visual(image, model_type, ignore_residual, output_cls_token, last_n_layers)
         if output_cls_token:
             cls_token, features = features
             return F.normalize(cls_token, dim=-1) if normalize else cls_token, \

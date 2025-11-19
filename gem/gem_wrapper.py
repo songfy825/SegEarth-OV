@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
-from open_clip.transformer import VisionTransformer
+from open_clip2.transformer import VisionTransformer
 
 from .gem_utils import SelfSelfAttention, GEMResidualBlock, modified_vit_forward
 

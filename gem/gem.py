@@ -1,7 +1,7 @@
 import logging
 from typing import Any, Union, List, Optional, Tuple, Dict
-import open_clip
-from open_clip.constants import OPENAI_DATASET_MEAN, OPENAI_DATASET_STD
+import open_clip2
+from open_clip2.constants import OPENAI_DATASET_MEAN, OPENAI_DATASET_STD
 
 import torch
 from torchvision import transforms
@@ -70,7 +70,7 @@ def get_tokenizer(
         **kwargs,
 ):
     """ Wrapper around openclip get_tokenizer function """
-    return open_clip.get_tokenizer(model_name=model_name, context_length=context_length, **kwargs)
+    return open_clip2.get_tokenizer(model_name=model_name, context_length=context_length, **kwargs)
 
 
 def get_gem_img_transform(
@@ -112,10 +112,10 @@ def create_gem_model(
 ):
     model_name = model_name.replace("/", "-")
     logging.info(f'Loading pretrained {model_name} from pretrained weights {pretrained}...')
-    open_clip_model = open_clip.create_model(model_name, pretrained, precision, device, jit, force_quick_gelu, force_custom_text,
+    open_clip_model = open_clip2.create_model(model_name, pretrained, precision, device, jit, force_quick_gelu, force_custom_text,
                                   force_patch_dropout, force_image_size, force_preprocess_cfg, pretrained_image,
                                   pretrained_hf, cache_dir, output_dict, require_pretrained, **model_kwargs)
-    tokenizer = open_clip.get_tokenizer(model_name=model_name)
+    tokenizer = open_clip2.get_tokenizer(model_name=model_name)
 
     gem_model = GEMWrapper(model=open_clip_model, tokenizer=tokenizer, depth=gem_depth,
                            ss_attn_iter=ss_attn_iter, ss_attn_temp=ss_attn_temp, ignore_residual=ignore_residual)

@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from open_clip.transformer import _expand_token, to_2tuple
+from open_clip2.transformer import _expand_token, to_2tuple
 
 
 

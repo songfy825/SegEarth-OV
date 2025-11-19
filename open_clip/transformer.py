@@ -502,6 +502,7 @@ class VisionTransformer(nn.Module):
     def forward(self, x: torch.Tensor, model_type: str = 'ClearCLIP', ignore_residual=True, output_cls_token=False, last_n_layers=1):
         B, nc, w, h = x.shape
         x = self.conv1(x)  # shape = [*, width, grid, grid]
+        width, feat_w, feat_h = x.shape[-3], x.shape[-2], x.shape[-1]
         x = x.reshape(x.shape[0], x.shape[1], -1)  # shape = [*, width, grid ** 2]
         x = x.permute(0, 2, 1)  # shape = [*, grid ** 2, width]
 
@@ -519,9 +520,25 @@ class VisionTransformer(nn.Module):
 
         x = x.permute(1, 0, 2)  # NLD -> LND
 
+        # last_n_layers = 1 # TODO: 2 is better
         for blk in self.transformer.resblocks[:-last_n_layers]:
             x = blk(x)
-
+        
+        ######
+        
+        # feats_list = []
+        # for idx, blk in enumerate(self.transformer.resblocks[:-1], start=1):
+        #     x = blk(x)
+        #     feats_list.append(x)
+        #     if idx == len(self.transformer.resblocks) - 1:
+        #         cls_token = x[:1, ...]
+        #         outlier_indices, LOF_scores = lof_pytorch(x[1:, ...].squeeze(1), n_neighbors=20, contamination=0.05)
+        #         top_indices = [(torch.div(index, feat_w, rounding_mode='trunc'), index % feat_w) for index in outlier_indices]
+        #         feature_map = x[1:, :, :].permute(1, 2, 0).reshape(B, width, feat_w, feat_h)
+        #         feature_map = mean_interpolation(feature_map, top_indices)
+        #         x = feature_map.reshape(B, width, feat_w * feat_h).permute(2, 0, 1)
+        #         x = torch.cat([cls_token, x], dim=0)
+        
         output = 0
         for blk in self.transformer.resblocks[-last_n_layers:]:
             if ignore_residual:
@@ -613,7 +630,7 @@ class VisionTransformer(nn.Module):
             out = torch.hstack([torch.zeros((dim1 * dim2 + 1, 1)), v_adjusted])
         return out
     
-    def custom_attn(self, attn_layer, x, model_type='ClearCLIP'):
+    def custom_attn(self, attn_layer, x, model_type='ClearCLIP', mid_simi=None):
 
         num_heads = attn_layer.num_heads
         num_tokens, bsz, embed_dim = x.size()
@@ -642,7 +659,32 @@ class VisionTransformer(nn.Module):
             qq_attn = torch.bmm(q, q.transpose(1, 2)) * scale
             kk_attn = torch.bmm(k, k.transpose(1, 2)) * scale
             vv_attn = torch.bmm(v, v.transpose(1, 2)) * scale
+
+            # beta = 1.0
+            # pca_dim = 16
+            
+            # q_ = pca([q], dim=pca_dim).to(v).unsqueeze(0)
+            # qq_attn_pca = torch.bmm(q_, q_.transpose(1, 2))
+            # qq_attn_pca[qq_attn_pca < 0.0] = float('-inf')
+            # qq_attn = qq_attn + beta * qq_attn_pca
+            
+            # k_ = pca([k], dim=pca_dim).to(v).unsqueeze(0)
+            # kk_attn_pca = torch.bmm(k_, k_.transpose(1, 2))
+            # kk_attn_pca[kk_attn_pca < 0.0] = float('-inf')
+            # kk_attn = kk_attn + beta * kk_attn_pca
+            
+            # v_ = pca([v], dim=pca_dim).to(v).unsqueeze(0)
+            # vv_attn_pca = torch.bmm(v_, v_.transpose(1, 2))
+            # vv_attn_pca[vv_attn_pca < 0.0] = float('-inf')
+            # vv_attn = vv_attn + beta * vv_attn_pca
+            
             attn_weights = F.softmax(qq_attn, dim=-1) + F.softmax(kk_attn, dim=-1) + F.softmax(vv_attn, dim=-1)
+        elif model_type == 'SegEarth-v':
+            vv_attn = torch.bmm(v, v.transpose(1, 2)) * scale
+            attn_weights = F.softmax(vv_attn, dim=-1)
+        elif model_type == 'SegEarth-x':
+            identity_attn = torch.eye(v.shape[1], device=v.device, dtype=v.dtype)
+            attn_weights = identity_attn.unsqueeze(0).repeat(v.shape[0], 1, 1)
         elif model_type == 'ClearCLIP':
             qq_attn = torch.bmm(q, q.transpose(1, 2)) * scale
             attn_weights = F.softmax(qq_attn, dim=-1)
@@ -670,6 +712,14 @@ class VisionTransformer(nn.Module):
                 raise NotImplemented
             attn_weights += omega
             attn_weights = F.softmax(attn_weights, dim=-1)
+        elif model_type == 'SC-CLIP':
+            mid_simi = (mid_simi - torch.mean(mid_simi)) * 3.0
+            mid_simi[mid_simi < 0.0] = float('-inf')
+            mid_simi = mid_simi.repeat(num_heads, 1, 1)
+            attn_weights = F.softmax(mid_simi, dim=-1)
+            k_attn = torch.bmm(k, k.transpose(1, 2)) * scale
+            attn_weights += F.softmax(k_attn, dim=-1)
+            attn_weights /= 2
 
         attn_output = torch.bmm(attn_weights, v)
         attn_output = attn_output.transpose(0, 1).contiguous().view(-1, bsz, embed_dim)
@@ -931,3 +981,131 @@ class MultimodalTransformer(Transformer):
     @torch.jit.ignore
     def set_grad_checkpointing(self, enable=True):
         self.grad_checkpointing = enable
+
+
+def lof_pytorch(x, n_neighbors=30, contamination=0.05):
+    distances = torch.norm(x[:, None] - x[None, :], dim=2, p=2) ** 2
+
+    knn_distances, knn_indices = torch.topk(distances, k=n_neighbors+1, largest=False)
+    knn_distances, knn_indices = knn_distances[:, 1:], knn_indices[:, 1:]
+
+    k_distances = knn_distances[:, -1].unsqueeze(1).expand_as(knn_distances)
+    reach_distances = torch.max(knn_distances, k_distances)
+
+    LRD = n_neighbors / torch.nan_to_num(reach_distances.mean(dim=1), nan=1e-6)
+
+    LRD_ratios = LRD[knn_indices] / LRD.unsqueeze(1)
+    LOF_scores = LRD_ratios.mean(dim=1)
+
+    threshold = torch.quantile(LOF_scores.to(torch.float32), 1 - contamination)
+
+    outlier_mask = LOF_scores > threshold
+    outlier_indices = torch.where(outlier_mask)[0]
+
+    return outlier_indices, LOF_scores
+
+
+def mean_interpolation(feature_map, top_indices):
+    B, C, H, W = feature_map.shape
+    device = feature_map.device
+    dtype = feature_map.dtype
+
+    kernel = torch.ones(C, 1, 3, 3, device=device, dtype=dtype)
+    kernel[:, 0, 1, 1] = 0
+    mask = torch.ones((H, W), device=device, dtype=dtype)
+    indices = torch.tensor(top_indices, dtype=torch.long, device=device)
+    mask[indices[:, 0], indices[:, 1]] = 0
+    mask = mask.unsqueeze(0).unsqueeze(0)
+    masked_feature_map = feature_map * mask
+    padded_feature_map = F.pad(masked_feature_map, (1, 1, 1, 1), mode='constant', value=0)
+    padded_mask = F.pad(mask, (1, 1, 1, 1), mode='constant', value=0)
+    neighbor_sum = F.conv2d(padded_feature_map, kernel, groups=C)
+    valid_neighbors = F.conv2d(padded_mask, kernel[:, :1, :, :], groups=1)
+    valid_neighbor_mask = (valid_neighbors > 0).to(dtype)
+    safe_valid_neighbors = valid_neighbors.clone()
+    safe_valid_neighbors[safe_valid_neighbors == 0] = 1
+    mean_neighbors = neighbor_sum / safe_valid_neighbors
+    top_indices_mask = torch.zeros((H, W), device=device, dtype=dtype)
+    top_indices_mask[indices[:, 0], indices[:, 1]] = 1
+    top_indices_mask = top_indices_mask.unsqueeze(0).unsqueeze(0)
+    update_mask = top_indices_mask * valid_neighbor_mask
+    feature_map = feature_map * (1 - update_mask) + mean_neighbors * update_mask
+    return feature_map
+
+
+def adaptively_aggregate(maskclip_feats: torch.Tensor, corrs: torch.Tensor):
+    corrs_normalized = corrs / (corrs.sum(dim=-1, keepdim=True) + 1e-6)
+    maskclip_feats_ref = torch.matmul(corrs_normalized, maskclip_feats.permute(1, 0, 2))
+    return maskclip_feats_ref.permute(1, 0, 2)
+    
+
+def pca(image_feats_list, dim=3, fit_pca=None, use_torch_pca=True, max_samples=None):
+    device = image_feats_list[0].device
+
+    def flatten(tensor, target_size=None):
+        if target_size is not None and fit_pca is None:
+            tensor = F.interpolate(tensor, (target_size, target_size), mode="bilinear")
+        # B, C, H, W = tensor.shape
+        # return tensor.permute(1, 0, 2, 3).reshape(C, B * H * W).permute(1, 0).detach().cpu()
+        # print(tensor.shape)
+        # exit(0)
+        head_num, lens, head_dim = tensor.shape
+        return tensor.permute(0, 2, 1).reshape(head_num * head_dim, lens).permute(1, 0).detach().cpu()
+
+    if len(image_feats_list) > 1 and fit_pca is None:
+        target_size = image_feats_list[0].shape[2]
+    else:
+        target_size = None
+
+    flattened_feats = []
+    for feats in image_feats_list:
+        flattened_feats.append(flatten(feats, target_size))
+    x = torch.cat(flattened_feats, dim=0)
+
+    # Subsample the data if max_samples is set and the number of samples exceeds max_samples
+    if max_samples is not None and x.shape[0] > max_samples:
+        indices = torch.randperm(x.shape[0])[:max_samples]
+        x = x[indices]
+
+    if fit_pca is None:
+        if use_torch_pca:
+            fit_pca = TorchPCA(n_components=dim).fit(x)
+        else:
+            fit_pca = PCA(n_components=dim).fit(x)
+
+    reduced_feats = []
+    for feats in image_feats_list:
+        x_red = fit_pca.transform(flatten(feats))
+        if isinstance(x_red, np.ndarray):
+            x_red = torch.from_numpy(x_red)
+        x_red -= x_red.min(dim=0, keepdim=True).values
+        x_red /= x_red.max(dim=0, keepdim=True).values
+        # B, C, H, W = feats.shape
+        return x_red.to(device)
+        # head_num, lens, head_dim = feats.shape
+        # print(x_red.shape, feats.shape)
+        # exit(0)
+        # reduced_feats.append(x_red.reshape(B, H, W, dim).permute(0, 3, 1, 2).to(device))
+
+    return reduced_feats, fit_pca
+
+
+class TorchPCA(object):
+    
+    def __init__(self, n_components):
+        self.n_components = n_components
+
+    def fit(self, X):
+        X = X.to(torch.float32)
+        self.mean_ = X.mean(dim=0)
+        unbiased = X - self.mean_.unsqueeze(0)
+        U, S, V = torch.pca_lowrank(unbiased, q=self.n_components, center=False, niter=4)
+        self.components_ = V.T
+        self.singular_values_ = S
+        return self
+
+    def transform(self, X):
+        X = X.to(torch.float32)
+        t0 = X - self.mean_.unsqueeze(0)
+        projected = t0 @ self.components_.T
+        return projected

@@ -8,3 +8,5 @@ data
 *.png
 .vscode
 __pycache__
+log
+*.ckpt

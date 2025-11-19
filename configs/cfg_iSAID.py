@@ -8,7 +8,7 @@ model = dict(
 
 # dataset settings
 dataset_type = 'iSAIDDataset'
-data_root = ''
+data_root = '/home/fengyi/data/SegEarth/'
 
 test_pipeline = [
     dict(type='LoadImageFromFile'),
@@ -18,7 +18,22 @@ test_pipeline = [
     dict(type='LoadAnnotations'),
     dict(type='PackSegInputs')
 ]
-
+# test_pipeline = [
+#     dict(type='LoadImageFromFile'),
+#     dict(type='Resize', scale=(512, 512), keep_ratio=True),
+#     # add loading annotation after ``Resize`` because ground truth
+#     # does not need to do resize data transform
+#     dict(type='LoadAnnotations'),
+#     dict(type='PackSegInputs')
+# ]
+# #Clipseg
+# test_pipeline = [
+#     dict(type='LoadImageFromFile'),
+#     dict(type='Resize', scale=(704, 704), keep_ratio=True),
+#     # 添加数据类型转换和归一化
+#     dict(type='LoadAnnotations'),
+#     dict(type='PackSegInputs')
+# ]
 test_dataloader = dict(
     batch_size=1,
     num_workers=4,
@@ -29,6 +44,6 @@ test_dataloader = dict(
         data_root=data_root,
         reduce_zero_label=False,
         data_prefix=dict(
-            img_path='data/iSAID/img_dir/val',
-            seg_map_path='data/iSAID/ann_dir/val'),
+            img_path='iSAID/img_dir/val',
+            seg_map_path='iSAID/ann_dir/val'),
         pipeline=test_pipeline))

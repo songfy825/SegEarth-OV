@@ -1,9 +1,11 @@
 import os
 os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 import argparse
-import segearth_segmentor
+# import segearth_segmentor
+import ss
+import models.clipseg as clipseg
 import custom_datasets
-
+from CustomFastVit import CustomFastVit
 from mmengine.config import Config
 from mmengine.runner import Runner
 
@@ -13,8 +15,8 @@ from utils import append_experiment_result
 def parse_args():
     parser = argparse.ArgumentParser(
         description='SegEarth-OV evaluation with MMSeg')
-    parser.add_argument('--config', default='./configs/cfg_voc20.py')
-    parser.add_argument('--work-dir', default='./work_logs/')
+    parser.add_argument('--config', default='./configs/cfg_openearthmap.py')
+    parser.add_argument('--work-dir', default='work_dirs/tmp')
     parser.add_argument(
         '--show', action='store_true', help='show prediction results')
     parser.add_argument(

@@ -4,7 +4,6 @@ from typing import Optional, Tuple, List
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 try:
     from featup.adaptive_conv_cuda.adaptive_conv import AdaptiveConv
 except:
@@ -323,8 +322,54 @@ class JBUOne(torch.nn.Module):
         source_8 = self.upsample(source_4, guidance, self.up)
         source_16 = self.upsample(source_8, guidance, self.up)
         return self.fixup_proj(source_16) * 0.1 + source_16
+class JBUOne_32(torch.nn.Module):
 
+    def __init__(self, feat_dim, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.up = JBULearnedRange(3, feat_dim, 32, radius=5)
+        
+        self.fixup_proj = torch.nn.Sequential(
+            torch.nn.Dropout2d(0.2),
+            torch.nn.Conv2d(feat_dim, feat_dim, kernel_size=1))
 
+    def upsample(self, source, guidance, up):
+        _, _, h, w = source.shape
+        small_guidance = F.adaptive_avg_pool2d(guidance, (h * 2, w * 2))
+        upsampled = up(source, small_guidance)
+        return upsampled
+
+    def forward(self, source, guidance):
+        source_2 = self.upsample(source, guidance, self.up)
+        source_4 = self.upsample(source_2, guidance, self.up)
+        source_8 = self.upsample(source_4, guidance, self.up)
+        source_16 = self.upsample(source_8, guidance, self.up)
+        source_32 = self.upsample(source_16, guidance, self.up)
+        return self.fixup_proj(source_32) * 0.1 + source_32
+
+class JBUOneMobile(torch.nn.Module):
+
+    def __init__(self, feat_dim, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.up = JBULearnedRange(3, feat_dim, 32, radius=5)
+        self.fuse = FuseLite()
+        self.fixup_proj = torch.nn.Sequential(
+            torch.nn.Dropout2d(0.2),
+            torch.nn.Conv2d(feat_dim, feat_dim, kernel_size=1))
+
+    def upsample(self, source, guidance, up):
+        _, _, h, w = source.shape
+        small_guidance = F.adaptive_avg_pool2d(guidance, (h * 2, w * 2))
+        upsampled = up(source, small_guidance)
+        return upsampled
+
+    def forward(self, source, guidance):
+        source = self.fuse(source) 
+        source_2 = self.upsample(source, guidance, self.up)
+        source_4 = self.upsample(source_2, guidance, self.up)
+        source_8 = self.upsample(source_4, guidance, self.up)
+        source_16 = self.upsample(source_8, guidance, self.up)
+
+        return self.fixup_proj(source_16) * 0.1 + source_16
 class LayerNorm2d(nn.Module):
     def __init__(self, num_channels: int, eps: float = 1e-6) -> None:
         super().__init__()
@@ -349,6 +394,27 @@ class Bilinear(torch.nn.Module):
         _, _, h, w = img.shape
         return F.interpolate(feats, (h, w), mode="bilinear")
 
+class FuseLite(nn.Module):
+    def __init__(self, in_channels=[64, 128, 256, 512], out_dim=512, target_size=(14, 14)):
+        super().__init__()
+        self.proj = nn.ModuleList([
+            nn.Conv2d(c, out_dim, 1) for c in in_channels
+        ])
+        self.fuse_conv = nn.Sequential(
+            nn.Conv2d(out_dim * len(in_channels), out_dim, 3, padding=1, bias=False),
+            nn.BatchNorm2d(out_dim),
+            nn.ReLU(inplace=True)
+        )
+        self.target_size = target_size
+
+    def forward(self, feats):
+        outs = []
+        for f, conv in zip(feats, self.proj):
+            f_ = conv(f)
+            f_up = F.interpolate(f_, size=self.target_size, mode='bilinear', align_corners=False)
+            outs.append(f_up)
+        out = torch.cat(outs, dim=1)
+        return self.fuse_conv(out)
 
 def get_upsampler(upsampler, dim):
     if upsampler == 'bilinear':
@@ -365,5 +431,9 @@ def get_upsampler(upsampler, dim):
         return IFA(dim)
     elif upsampler == 'jbu_one':
         return JBUOne(dim)
+    elif upsampler == 'jbu_one_32':
+        return JBUOne_32(dim)
+    elif upsampler == 'jbu_one_mobile':
+        return JBUOneMobile(dim)
     else:
         raise ValueError(f"Unknown upsampler {upsampler}")

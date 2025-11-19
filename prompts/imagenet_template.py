@@ -271,3 +271,19 @@ sub_imagenet_template = [
 GEM_template = [
     lambda c: f'a photo of a {c}.',
 ]
+ClipSeg_template = [
+    
+    lambda c: f"a satellite image of {c}",
+    lambda c: f"an aerial view of {c}",
+    lambda c: f"a top-down UAV photo of {c}",
+    lambda c: f"a remote sensing image showing {c}",
+    lambda c: f"a high-resolution satellite view of {c}",
+    lambda c: f"aerial photography of {c}",
+    lambda c: f"overhead view of {c}",
+    lambda c: f"a drone-captured image of {c}",
+    lambda c: f"a nadir-view image of {c}",
+    lambda c: f"top-down scene containing {c}",
+    lambda c: f"remote sensing observation of {c}",
+    lambda c: f"aerial imagery depicting {c}"
+]
+
